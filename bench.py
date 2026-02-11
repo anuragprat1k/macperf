@@ -856,7 +856,7 @@ def main():
         import shutil
         shutil.copy2(out_path, submit_path)
         print(f"\nCommunity result saved to {submit_path}")
-        print("To submit: fork https://github.com/aragun/macperf, commit this file, and open a PR.")
+        print("To submit: fork https://github.com/anuragprat1k/macperf, commit this file, and open a PR.")
 
     # ---- shareable summary ----
     if args.share:
@@ -881,7 +881,7 @@ def main():
         print(f"Score: {score:,} tok/s (d=1024 training)")
         print(f"GPU GEMM 4K: {gemm4k} GFLOPS | FP16 speedup: {fp16x}x")
         print(f"Max model (inference): {max_inf} | Max model (LoRA): {max_lora}")
-        print("https://github.com/aragun/macperf")
+        print("https://github.com/anuragprat1k/macperf")
         print("\u2550" * 40)
 
     print("=" * W)

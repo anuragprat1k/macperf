@@ -7,7 +7,7 @@ Built for ML researchers who want to know: *"Can I fine-tune this model on my Ma
 ## Quick Start
 
 ```bash
-git clone https://github.com/aragun/macperf.git
+git clone https://github.com/anuragprat1k/macperf.git
 cd macperf
 pip install torch numpy
 python bench.py
@@ -101,7 +101,7 @@ Apple M1 | 8GB | macOS  14.2.1 | PyTorch 2.9.1
 Score: 11,974 tok/s (d=1024 training)
 GPU GEMM 4K: 1,536 GFLOPS | FP16 speedup: 1.32x
 Max model (inference): Phi-2 2.7B | Max model (LoRA): Phi-2 2.7B
-https://github.com/aragun/macperf
+https://github.com/anuragprat1k/macperf
 ══════════════════════════════════════
 ```
 
