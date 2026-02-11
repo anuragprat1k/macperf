@@ -313,14 +313,14 @@ def bench_transformer_throughput(configs, device_name):
                 "mem_mb": mem_train,
             }
             results.append(r)
-            print(f"    d={d_model:>4} h={nhead:>2} b={batch:>2} s={seq:>4}  "
+            print(f"    dim={d_model:>4} heads={nhead:>2} batch={batch:>2} seq={seq:>4}  "
                   f"train:{tok_train:>8.0f} tok/s  infer:{tok_infer:>8.0f} tok/s  "
                   f"mem:{mem_train}MB")
             del block, x
             _mps_reset()
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "MPS" in str(e):
-                print(f"    d={d_model:>4} h={nhead:>2} b={batch:>2} s={seq:>4}  SKIPPED (OOM)")
+                print(f"    dim={d_model:>4} heads={nhead:>2} batch={batch:>2} seq={seq:>4}  SKIPPED (OOM)")
                 results.append({"d_model": d_model, "nhead": nhead, "batch": batch, "seq": seq, "error": "OOM"})
                 _mps_reset()
             else:
@@ -576,12 +576,12 @@ def bench_inference_tok(configs, device_name):
                 "d_model": d_model, "nhead": nhead, "batch": batch, "seq": seq,
                 "prefill_tok_s": round(pf_tok), "decode_tok_s": round(dec_tok), "mem_mb": mem,
             })
-            print(f"    d={d_model:>4}  prefill:{pf_tok:>8.0f} tok/s  decode:{dec_tok:>6.0f} tok/s  mem:{mem}MB")
+            print(f"    dim={d_model:>4}  prefill:{pf_tok:>8.0f} tok/s  decode:{dec_tok:>6.0f} tok/s  mem:{mem}MB")
             del block, x, x1
             _mps_reset()
         except RuntimeError as e:
             if "out of memory" in str(e).lower() or "MPS" in str(e):
-                print(f"    d={d_model:>4}  SKIPPED (OOM)")
+                print(f"    dim={d_model:>4}  SKIPPED (OOM)")
                 results.append({"d_model": d_model, "error": "OOM"})
                 _mps_reset()
             else:
@@ -737,6 +737,8 @@ def print_comparison(score, chip_name):
 def main():
     ap = argparse.ArgumentParser(description="Apple Silicon ML Benchmark")
     ap.add_argument("--quick", action="store_true", help="Skip slower benchmarks")
+    ap.add_argument("--share", action="store_true", help="Print compact shareable summary")
+    ap.add_argument("--submit", action="store_true", help="Save result to community/ for PR submission")
     args = ap.parse_args()
 
     gemm_sizes = [512, 1024, 2048, 4096]
@@ -843,6 +845,45 @@ def main():
         json.dump(res, f, indent=2)
 
     print(f"\nResults saved to {out_path}")
+
+    # ---- submit to community ----
+    if args.submit:
+        community_dir = Path(__file__).parent / "results" / "community"
+        community_dir.mkdir(parents=True, exist_ok=True)
+        ram_int = int(sys_info["ram_gb"])
+        submit_name = f"{chip_slug}_{ram_int}gb_{hostname}.json"
+        submit_path = community_dir / submit_name
+        import shutil
+        shutil.copy2(out_path, submit_path)
+        print(f"\nCommunity result saved to {submit_path}")
+        print("To submit: fork https://github.com/aragun/macperf, commit this file, and open a PR.")
+
+    # ---- shareable summary ----
+    if args.share:
+        # find max feasible models
+        max_inf = max_lora = "—"
+        for m in reversed(res.get("practical", {}).get("feasibility", [])):
+            if m.get("fits_inf") and max_inf == "—":
+                max_inf = f"{m['model']} {m['params_B']}B"
+            if m.get("fits_lora") and max_lora == "—":
+                max_lora = f"{m['model']} {m['params_B']}B"
+
+        gemm4k = "—"
+        for g in res.get("gpu", {}).get("gemm", []):
+            if g.get("size") == 4096:
+                gemm4k = f"{g['gflops']:,.0f}"
+        fp16x = res.get("gpu", {}).get("fp16_fp32", {}).get("fp16_speedup", "—")
+        os_short = sys_info["os_version"].split("-")[0].replace("macOS", "macOS ")
+
+        print()
+        print("\u2550" * 40)
+        print(f"{sys_info['chip']} | {int(sys_info['ram_gb'])}GB | {os_short} | PyTorch {sys_info['torch_version']}")
+        print(f"Score: {score:,} tok/s (d=1024 training)")
+        print(f"GPU GEMM 4K: {gemm4k} GFLOPS | FP16 speedup: {fp16x}x")
+        print(f"Max model (inference): {max_inf} | Max model (LoRA): {max_lora}")
+        print("https://github.com/aragun/macperf")
+        print("\u2550" * 40)
+
     print("=" * W)
 
 

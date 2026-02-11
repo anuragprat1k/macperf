@@ -1,4 +1,5 @@
-results/
+results/*
+!results/community/
 __pycache__/
 *.pyc
 .DS_Store
