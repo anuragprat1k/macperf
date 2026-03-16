@@ -4,7 +4,8 @@ Community benchmark results sorted by transformer training throughput (d=1024).
 
 | Rank | Chip | RAM | GPU Cores | Score (tok/s) | GEMM 4K (GFLOPS) | FP16x | Max LoRA Model | PyTorch |
 |-----:|------|----:|----------:|--------------:|------------------:|------:|----------------|---------|
-| 1 | Apple M1 | 8.0GB | 7 | 11,974 | 1,536 | 1.32x | Phi-2 | 2.9.1 |
+| 1 | Apple M5 Max | 64.0GB | 40 | 122,002 | 14,620 | 3.09x | Llama-2 13B | 2.8.0 |
+| 2 | Apple M1 | 8.0GB | 7 | 11,974 | 1,536 | 1.32x | Phi-2 | 2.9.1 |
 
 ---
 
