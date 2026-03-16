@@ -1,0 +1,418 @@
+{
+  "system": {
+    "hostname": "Anurags-MacBook-Pro.local",
+    "chip": "Apple M5 Max",
+    "cpu_cores_total": "18",
+    "cpu_cores_performance": "6",
+    "cpu_cores_efficiency": "12",
+    "gpu_name": "Apple M5 Max",
+    "gpu_cores": "40",
+    "metal_family": "Metal 4",
+    "ram_gb": 64.0,
+    "os_version": "macOS-26.3.1-arm64-arm-64bit",
+    "python_version": "3.9.6",
+    "numpy_version": "2.0.2",
+    "torch_version": "2.8.0",
+    "mps_available": true
+  },
+  "cpu": {
+    "gemm": [
+      {
+        "size": 512,
+        "seconds": 0.0002,
+        "gflops": 1526.29
+      },
+      {
+        "size": 1024,
+        "seconds": 0.0012,
+        "gflops": 1803.03
+      },
+      {
+        "size": 2048,
+        "seconds": 0.0092,
+        "gflops": 1876.29
+      },
+      {
+        "size": 4096,
+        "seconds": 0.0775,
+        "gflops": 1773.8
+      }
+    ],
+    "batch_matmul": {
+      "batch": 64,
+      "seq": 512,
+      "dim": 64,
+      "seconds": 0.003,
+      "gflops": 705.92
+    },
+    "memory_bw": {
+      "size_mb": 256,
+      "seconds": 0.0038,
+      "gb_per_s": 66.16
+    }
+  },
+  "gpu": {
+    "gemm": [
+      {
+        "size": 512,
+        "seconds": 0.0003,
+        "gflops": 802.9,
+        "mem_mb": 2.0
+      },
+      {
+        "size": 1024,
+        "seconds": 0.001,
+        "gflops": 2099.97,
+        "mem_mb": 8.0
+      },
+      {
+        "size": 2048,
+        "seconds": 0.0014,
+        "gflops": 12434.54,
+        "mem_mb": 32.0
+      },
+      {
+        "size": 4096,
+        "seconds": 0.0094,
+        "gflops": 14620.45,
+        "mem_mb": 128.0
+      }
+    ],
+    "batch_matmul": {
+      "batch": 64,
+      "seq": 512,
+      "dim": 64,
+      "seconds": 0.0003,
+      "gflops": 6315.37,
+      "mem_mb": 16.0
+    },
+    "conv2d": {
+      "batch": 32,
+      "in_ch": 64,
+      "out_ch": 128,
+      "spatial": 56,
+      "kernel": 3,
+      "seconds": 0.0018,
+      "mem_mb": 24.8
+    },
+    "transfer": {
+      "size_mb": 128,
+      "h2d_seconds": 0.0015,
+      "h2d_gb_per_s": 86.16,
+      "d2h_seconds": 0.0012,
+      "d2h_gb_per_s": 107.37
+    },
+    "fp16_fp32": {
+      "size": 2048,
+      "fp32_seconds": 0.0014,
+      "fp32_gflops": 12562.6,
+      "fp16_seconds": 0.0004,
+      "fp16_gflops": 38791.69,
+      "fp16_speedup": 3.09
+    }
+  },
+  "transformer": {
+    "throughput": [
+      {
+        "d_model": 768,
+        "nhead": 12,
+        "batch": 8,
+        "seq": 512,
+        "train_sec": 0.0212,
+        "train_tok_s": 192819,
+        "infer_sec": 0.0074,
+        "infer_tok_s": 550905,
+        "mem_mb": 98.4
+      },
+      {
+        "d_model": 1024,
+        "nhead": 16,
+        "batch": 8,
+        "seq": 512,
+        "train_sec": 0.0336,
+        "train_tok_s": 122002,
+        "infer_sec": 0.0122,
+        "infer_tok_s": 335855,
+        "mem_mb": 164.2
+      },
+      {
+        "d_model": 2048,
+        "nhead": 16,
+        "batch": 4,
+        "seq": 512,
+        "train_sec": 0.0626,
+        "train_tok_s": 32718,
+        "infer_sec": 0.0292,
+        "infer_tok_s": 70057,
+        "mem_mb": 416.2
+      },
+      {
+        "d_model": 4096,
+        "nhead": 32,
+        "batch": 2,
+        "seq": 512,
+        "train_sec": 0.15,
+        "train_tok_s": 6828,
+        "infer_sec": 0.089,
+        "infer_tok_s": 11499,
+        "mem_mb": 1568.4
+      }
+    ],
+    "seq_scaling": [
+      {
+        "seq": 128,
+        "seconds": 0.0076,
+        "tok_s": 134168,
+        "mem_mb": 117.1
+      },
+      {
+        "seq": 256,
+        "seconds": 0.0151,
+        "tok_s": 135406,
+        "mem_mb": 132.1
+      },
+      {
+        "seq": 512,
+        "seconds": 0.0315,
+        "tok_s": 129884,
+        "mem_mb": 164.1
+      },
+      {
+        "seq": 1024,
+        "seconds": 0.0697,
+        "tok_s": 117457,
+        "mem_mb": 224.2
+      },
+      {
+        "seq": 2048,
+        "seconds": 0.167,
+        "tok_s": 98083,
+        "mem_mb": 224.4
+      }
+    ],
+    "lora": {
+      "d_model": 1024,
+      "nhead": 8,
+      "batch": 8,
+      "seq": 512,
+      "rank": 16,
+      "full_sec": 0.0316,
+      "full_tok_s": 129571,
+      "full_mem_mb": 164.1,
+      "full_params": 12596224,
+      "lora_sec": 0.0121,
+      "lora_tok_s": 337512,
+      "lora_mem_mb": 64.9,
+      "lora_params": 131072,
+      "speedup": 2.6,
+      "mem_save_pct": 60.5
+    },
+    "inference": [
+      {
+        "d_model": 768,
+        "nhead": 12,
+        "batch": 1,
+        "seq": 512,
+        "prefill_tok_s": 154776,
+        "decode_tok_s": 2692,
+        "mem_mb": 28.5
+      },
+      {
+        "d_model": 1024,
+        "nhead": 16,
+        "batch": 1,
+        "seq": 512,
+        "prefill_tok_s": 93371,
+        "decode_tok_s": 2402,
+        "mem_mb": 50.1
+      },
+      {
+        "d_model": 2048,
+        "nhead": 16,
+        "batch": 1,
+        "seq": 512,
+        "prefill_tok_s": 25689,
+        "decode_tok_s": 1309,
+        "mem_mb": 196.1
+      },
+      {
+        "d_model": 4096,
+        "nhead": 32,
+        "batch": 1,
+        "seq": 512,
+        "prefill_tok_s": 6587,
+        "decode_tok_s": 512,
+        "mem_mb": 776.2
+      }
+    ]
+  },
+  "practical": {
+    "feasibility": [
+      {
+        "model": "GPT-2 Small",
+        "params_B": 0.124,
+        "fp16_inf_gb": 0.25,
+        "fits_inf": true,
+        "train_gb": 2.48,
+        "fits_train": true,
+        "lora_gb": 0.27,
+        "fits_lora": true
+      },
+      {
+        "model": "GPT-2 Medium",
+        "params_B": 0.355,
+        "fp16_inf_gb": 0.71,
+        "fits_inf": true,
+        "train_gb": 7.1,
+        "fits_train": true,
+        "lora_gb": 0.78,
+        "fits_lora": true
+      },
+      {
+        "model": "GPT-2 Large",
+        "params_B": 0.774,
+        "fp16_inf_gb": 1.55,
+        "fits_inf": true,
+        "train_gb": 15.48,
+        "fits_train": true,
+        "lora_gb": 1.7,
+        "fits_lora": true
+      },
+      {
+        "model": "Phi-2",
+        "params_B": 2.7,
+        "fp16_inf_gb": 5.4,
+        "fits_inf": true,
+        "train_gb": 54.0,
+        "fits_train": false,
+        "lora_gb": 5.94,
+        "fits_lora": true
+      },
+      {
+        "model": "Mistral 7B",
+        "params_B": 7.2,
+        "fp16_inf_gb": 14.4,
+        "fits_inf": true,
+        "train_gb": 144.0,
+        "fits_train": false,
+        "lora_gb": 15.84,
+        "fits_lora": true
+      },
+      {
+        "model": "Llama-3 8B",
+        "params_B": 8.0,
+        "fp16_inf_gb": 16.0,
+        "fits_inf": true,
+        "train_gb": 160.0,
+        "fits_train": false,
+        "lora_gb": 17.6,
+        "fits_lora": true
+      },
+      {
+        "model": "Llama-2 13B",
+        "params_B": 13.0,
+        "fp16_inf_gb": 26.0,
+        "fits_inf": true,
+        "train_gb": 260.0,
+        "fits_train": false,
+        "lora_gb": 28.6,
+        "fits_lora": true
+      }
+    ],
+    "max_batch": {
+      "d_model": 1024,
+      "seq": 512,
+      "max_batch": 256
+    },
+    "training_times": [
+      {
+        "model": "GPT-2 Small",
+        "layers": 12,
+        "d_model": 768,
+        "step_sec": 0.254,
+        "steps_per_hr": 14151,
+        "hours_1k": 0.07
+      },
+      {
+        "model": "GPT-2 Medium",
+        "layers": 24,
+        "d_model": 1024,
+        "step_sec": 0.806,
+        "steps_per_hr": 4464,
+        "hours_1k": 0.22
+      },
+      {
+        "model": "GPT-2 Large",
+        "layers": 36,
+        "d_model": 1280,
+        "step_sec": 1.89,
+        "steps_per_hr": 1905,
+        "hours_1k": 0.53
+      },
+      {
+        "model": "Phi-2",
+        "layers": 32,
+        "d_model": 2560,
+        "step_sec": 3.13,
+        "steps_per_hr": 1150,
+        "hours_1k": 0.87
+      },
+      {
+        "model": "Mistral 7B",
+        "layers": 32,
+        "d_model": 4096,
+        "step_sec": 4.8,
+        "steps_per_hr": 750,
+        "hours_1k": 1.33
+      },
+      {
+        "model": "Llama-3 8B",
+        "layers": 32,
+        "d_model": 4096,
+        "step_sec": 4.8,
+        "steps_per_hr": 750,
+        "hours_1k": 1.33
+      },
+      {
+        "model": "Llama-2 13B",
+        "layers": 40,
+        "d_model": 5120,
+        "step_sec": 9.375,
+        "steps_per_hr": 384,
+        "hours_1k": 2.6
+      }
+    ],
+    "disk_io": {
+      "size_mb": 512,
+      "write_sec": 0.058,
+      "write_gb_s": 8.58,
+      "read_sec": 0.025,
+      "read_gb_s": 19.94
+    }
+  },
+  "scoring": {
+    "score_tok_s": 122002,
+    "detected_chip": null,
+    "reference": {
+      "M1": 122002,
+      "M1 Pro": 244004,
+      "M1 Max": 427007,
+      "M1 Ultra": 793013,
+      "M2": 170803,
+      "M2 Pro": 292805,
+      "M2 Max": 549009,
+      "M2 Ultra": 1037017,
+      "M3": 195203,
+      "M3 Pro": 305005,
+      "M3 Max": 671011,
+      "M4": 219604,
+      "M4 Pro": 366006,
+      "M4 Max": 732012
+    },
+    "cloud_pct": {
+      "NVIDIA RTX 4090": 2.5,
+      "NVIDIA A100 (80GB)": 1.7,
+      "NVIDIA H100": 1.0
+    }
+  }
+}
