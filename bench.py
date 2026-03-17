@@ -9,6 +9,7 @@ transformer throughput, model feasibility, and training time estimates.
 Usage:
     python bench.py              # Full benchmark suite
     python bench.py --quick      # Skip slower benchmarks
+    python bench.py --rl         # RL post-training memory profiler (GRPO)
     python bench.py --submit     # Auto-create a PR with your results
     python bench.py --share      # Print compact shareable summary
     python bench.py --no-color   # Disable colored output
@@ -505,12 +506,28 @@ def bench_lora(d_model=1024, nhead=8, batch=8, seq=512, rank=16, device_name="mp
 MODEL_CONFIGS = [
     ("GPT-2 Small",   0.124,  12,   768,  12),
     ("GPT-2 Medium",  0.355,  24,  1024,  16),
+    ("Qwen3-0.6B",    0.6,    28,  1024,  16),
+    ("Qwen3.5-0.8B",  0.8,    24,  1024,   8),
     ("GPT-2 Large",   0.774,  36,  1280,  20),
+    ("Qwen3-1.7B",    1.7,    28,  2048,  16),
+    ("Qwen3.5-2B",    2.0,    24,  2048,   8),
     ("Phi-2",         2.7,    32,  2560,  32),
+    ("Qwen3-4B",      4.0,    36,  2560,  32),
+    ("Qwen3.5-4B",    4.0,    32,  2560,  16),
     ("Mistral 7B",    7.2,    32,  4096,  32),
     ("Llama-3 8B",    8.0,    32,  4096,  32),
     ("Llama-2 13B",  13.0,    40,  5120,  40),
 ]
+
+_GQA_KV_HEADS = {
+    "Mistral 7B": 8, "Llama-3 8B": 8,
+    "Qwen3-0.6B": 8, "Qwen3-1.7B": 8, "Qwen3-4B": 8,
+    "Qwen3.5-0.8B": 2, "Qwen3.5-2B": 2, "Qwen3.5-4B": 4,
+}
+
+
+def _n_kv_heads(name, n_heads):
+    return _GQA_KV_HEADS.get(name, n_heads)
 
 
 def model_feasibility(ram_gb):
@@ -685,6 +702,219 @@ def bench_disk_io(size_mb=512):
 
 
 # ---------------------------------------------------------------------------
+# RL Post-Training Profiler (GRPO)
+# ---------------------------------------------------------------------------
+
+def rl_memory_breakdown(ram_gb):
+    """LoRA-only static memory table for GRPO: policy + ref + optimizer."""
+    avail = ram_gb * 0.75
+    results = []
+
+    print(f"\n    Available memory (est.): {c.bold(f'{avail:.1f} GB')} of {ram_gb:.1f} GB total\n")
+    print(f"    {'Model':<15} {'Policy':>8} {'Ref':>8} {'Optim(LoRA)':>12} {'Static':>8} {'Budget':>8}")
+    print(f"    {'':->15} {'':->8} {'':->8} {'':->12} {'':->8} {'':->8}")
+
+    for name, params_b, layers, d, nh in MODEL_CONFIGS:
+        policy_gb = params_b * 2        # FP16
+        ref_gb = params_b * 2            # FP16 frozen
+        optim_gb = params_b * 0.01 * 8   # AdamW FP32 on ~1% trainable
+        static_gb = policy_gb + ref_gb + optim_gb
+        budget_gb = avail - static_gb
+
+        if budget_gb > 0:
+            budget_str = c.green(f"{budget_gb:>5.1f}GB")
+        else:
+            budget_str = c.red("\u2717 OOM")
+
+        print(f"    {name:<15} {policy_gb:>5.1f}GB  {ref_gb:>5.1f}GB  "
+              f"{optim_gb:>9.1f}GB  {static_gb:>5.1f}GB  {budget_str}")
+
+        results.append({
+            "model": name, "params_B": params_b,
+            "policy_gb": round(policy_gb, 2), "ref_gb": round(ref_gb, 2),
+            "optim_gb": round(optim_gb, 2), "static_gb": round(static_gb, 2),
+            "budget_gb": round(budget_gb, 2), "fits": budget_gb > 0,
+        })
+    return results
+
+
+def _measure_gen_phase(block, n_kv, head_dim, G, B, T, d_model, device):
+    """Run one-layer generation phase on MPS: KV cache + forward. Return bytes."""
+    dev = torch.device(device)
+    block.eval()
+    _sync()
+    mem0 = torch.mps.current_allocated_memory()
+
+    kv_k = torch.zeros(G * B, n_kv, T, head_dim, dtype=torch.float16, device=dev)
+    kv_v = torch.zeros(G * B, n_kv, T, head_dim, dtype=torch.float16, device=dev)
+    x = torch.randn(G * B, T, d_model, device=dev)
+    with torch.no_grad():
+        _ = block(x)
+    _sync()
+    mem1 = torch.mps.current_allocated_memory()
+
+    del kv_k, kv_v, x
+    block.train()
+    return mem1 - mem0
+
+
+def _measure_train_phase(block, B, T, d_model, device):
+    """Run one-layer training phase on MPS: fwd + bwd. Return bytes."""
+    dev = torch.device(device)
+    _sync()
+    mem0 = torch.mps.current_allocated_memory()
+
+    x = torch.randn(B, T, d_model, device=dev, requires_grad=True)
+    block.zero_grad()
+    out = block(x)
+    out.sum().backward()
+    _sync()
+    mem1 = torch.mps.current_allocated_memory()
+
+    del x, out
+    return mem1 - mem0
+
+
+def rl_grpo_profile(ram_gb, device, quick=False, max_params_b=None, selected_models=None):
+    """Profile GRPO memory for each model by running real ops on MPS.
+
+    For each model, builds one real transformer layer and measures actual
+    MPS memory for the generation phase (KV cache + forward) and training
+    phase (forward + backward) at every (G, B, T) combo. Per-layer costs
+    are scaled by the model's layer count to estimate the full model.
+    """
+    dev = torch.device(device)
+    avail = ram_gb * 0.75
+
+    G_vals = [1, 2, 4, 8, 16] if not quick else [1, 4, 16]
+    B_vals = [1, 2, 4] if not quick else [1, 4]
+    T_vals = [512, 1024, 2048, 4096] if not quick else [512, 2048]
+
+    all_results = {}
+
+    for name, params_b, layers, d_model, nhead in MODEL_CONFIGS:
+        if max_params_b is not None and params_b > max_params_b:
+            continue
+        if selected_models is not None and name not in selected_models:
+            continue
+
+        static_gb = params_b * 2 + params_b * 2 + params_b * 0.01 * 8
+        budget_gb = avail - static_gb
+
+        if budget_gb <= 0:
+            print(f"\n    {c.bold(name)} — {c.red('OOM')} "
+                  f"(static: {static_gb:.1f}GB > avail: {avail:.1f}GB)")
+            all_results[name] = {
+                "static_gb": round(static_gb, 2), "budget_gb": round(budget_gb, 2),
+                "fits": False, "configs": [],
+            }
+            continue
+
+        n_kv = _n_kv_heads(name, nhead)
+        head_dim = d_model // nhead
+
+        print(f"\n    {c.bold(name)} (LoRA) — static: {static_gb:.1f}GB, "
+              f"budget: {budget_gb:.1f}GB")
+        print(f"    {'G':>5} {'B':>4} {'T':>6}  "
+              f"{'Gen/layer':>10} {'Train/layer':>12} {'GenxL':>8} {'TrainxL':>9} {'Peak':>8}")
+
+        # Build one layer for all measurements at this d_model
+        _mps_reset()
+        try:
+            block = _make_block(d_model, nhead, dev)
+        except RuntimeError:
+            print(f"    {c.red('Cannot allocate even one layer')}")
+            all_results[name] = {
+                "static_gb": round(static_gb, 2), "budget_gb": round(budget_gb, 2),
+                "fits": False, "configs": [],
+            }
+            _mps_reset()
+            continue
+
+        model_configs = []
+        gen_oom_at = {}   # (G*B) -> max T that OOM'd, skip larger T
+
+        for G in G_vals:
+            for B in B_vals:
+                for T in T_vals:
+                    gb_key = G * B
+                    if gb_key in gen_oom_at and T >= gen_oom_at[gb_key]:
+                        continue
+
+                    # Guard: MPS crashes if any tensor dimension > INT_MAX
+                    max_elements = max(
+                        G * B * n_kv * T * head_dim,  # KV cache
+                        G * B * T * d_model,           # gen input
+                        B * T * d_model,               # train input
+                    )
+                    if max_elements > 2**31 - 1:
+                        continue
+
+                    _mps_reset()
+                    block = _make_block(d_model, nhead, dev)
+
+                    # --- Generation phase ---
+                    try:
+                        gen_bytes = _measure_gen_phase(
+                            block, n_kv, head_dim, G, B, T, d_model, device)
+                    except (RuntimeError, Exception):
+                        gen_oom_at[gb_key] = T
+                        _mps_reset()
+                        continue
+
+                    _mps_reset()
+                    block = _make_block(d_model, nhead, dev)
+
+                    # --- Training phase ---
+                    try:
+                        train_bytes = _measure_train_phase(
+                            block, B, T, d_model, device)
+                    except (RuntimeError, Exception):
+                        _mps_reset()
+                        continue
+
+                    _mps_reset()
+
+                    gen_per_layer_mb = gen_bytes / 1024 / 1024
+                    train_per_layer_mb = train_bytes / 1024 / 1024
+                    gen_total_gb = gen_per_layer_mb * layers / 1024
+                    train_total_gb = train_per_layer_mb * layers / 1024
+                    peak_gb = static_gb + max(gen_total_gb, train_total_gb)
+                    fits = peak_gb < avail
+
+                    tag = c.green("\u2713") if fits else c.red("\u2717")
+                    print(f"    {G:>5} {B:>4} {T:>6}  "
+                          f"{gen_per_layer_mb:>7.1f}MB  {train_per_layer_mb:>9.1f}MB  "
+                          f"{gen_total_gb:>5.1f}GB  {train_total_gb:>6.1f}GB  "
+                          f"{peak_gb:>5.1f}GB {tag}")
+
+                    model_configs.append({
+                        "G": G, "B": B, "T": T,
+                        "gen_per_layer_mb": round(gen_per_layer_mb, 1),
+                        "train_per_layer_mb": round(train_per_layer_mb, 1),
+                        "gen_total_gb": round(gen_total_gb, 2),
+                        "train_total_gb": round(train_total_gb, 2),
+                        "peak_gb": round(peak_gb, 2),
+                        "fits": fits,
+                    })
+
+        n_fit = sum(1 for cfg in model_configs if cfg["fits"])
+        total = len(G_vals) * len(B_vals) * len(T_vals)
+        print(f"    {c.dim(f'{n_fit}/{total} combos fit')}")
+
+        all_results[name] = {
+            "static_gb": round(static_gb, 2),
+            "budget_gb": round(budget_gb, 2),
+            "configs": model_configs,
+        }
+
+        del block
+        _mps_reset()
+
+    return all_results
+
+
+# ---------------------------------------------------------------------------
 # Scoring & comparison
 # ---------------------------------------------------------------------------
 
@@ -839,6 +1069,9 @@ def main():
     ap.add_argument("--share", action="store_true", help="Print compact shareable summary")
     ap.add_argument("--submit", action="store_true", help="Save result and create PR")
     ap.add_argument("--no-color", action="store_true", help="Disable colored output")
+    ap.add_argument("--rl", action="store_true", help="Run RL post-training memory profiler (GRPO)")
+    ap.add_argument("--rl-max-params", type=float, default=None, metavar="B",
+                    help="Only profile models up to this size in billions (e.g. 4)")
     args = ap.parse_args()
 
     if args.no_color:
@@ -936,6 +1169,67 @@ def main():
     _section("[Disk I/O]")
     res["practical"]["disk_io"] = bench_disk_io()
 
+    # ---- RL post-training profiler ----
+    if args.rl:
+        _section("[RL Post-Training Profiler (GRPO)]")
+        res["rl"] = {}
+
+        _sub("Static memory breakdown (LoRA)")
+        res["rl"]["breakdown"] = rl_memory_breakdown(sys_info["ram_gb"])
+
+        if has_mps:
+            # Show candidate models and let user select
+            avail = sys_info["ram_gb"] * 0.75
+            candidates = []
+            for i, (name, params_b, layers, d, nh) in enumerate(MODEL_CONFIGS):
+                if args.rl_max_params is not None and params_b > args.rl_max_params:
+                    continue
+                static = params_b * 2 + params_b * 2 + params_b * 0.01 * 8
+                budget = avail - static
+                candidates.append((i, name, params_b, static, budget))
+
+            print(f"\n    Models available for GRPO profiling:\n")
+            for idx, (i, name, params_b, static, budget) in enumerate(candidates):
+                status = c.green(f"budget {budget:.1f}GB") if budget > 0 else c.red("OOM")
+                print(f"      {idx + 1:>2}. {name:<15} {params_b:>5.1f}B  "
+                      f"static: {static:.1f}GB  {status}")
+
+            print(f"\n    Enter model numbers to profile (e.g. '1,3,5' or 'all'), "
+                  f"or 'q' to skip:")
+            try:
+                choice = input(f"    > ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                choice = "q"
+
+            if choice == "q" or choice == "":
+                print(f"    {c.dim('Skipping GRPO profiler')}")
+            else:
+                if choice == "all":
+                    selected_names = {name for _, name, *_ in candidates}
+                else:
+                    selected_indices = set()
+                    for part in choice.replace(" ", "").split(","):
+                        try:
+                            selected_indices.add(int(part))
+                        except ValueError:
+                            pass
+                    selected_names = {
+                        candidates[i - 1][1]
+                        for i in selected_indices
+                        if 1 <= i <= len(candidates)
+                    }
+
+                if selected_names:
+                    print()
+                    _sub("GRPO (G, B, T) profiler — real MPS measurements")
+                    res["rl"]["configs"] = rl_grpo_profile(
+                        sys_info["ram_gb"], device, quick=args.quick,
+                        max_params_b=args.rl_max_params,
+                        selected_models=selected_names,
+                    )
+        else:
+            print(f"    {c.dim('(MPS not available — skipping empirical measurements)')}")
+
     # ---- scoring ----
     _section("[Performance Score & Comparison]")
     score = compute_score(res["transformer"]["throughput"])
@@ -998,6 +1292,22 @@ def main():
         print(f"  Score: {c.bold(c.green(f'{score:,}'))} tok/s (d=1024 training)")
         print(f"  GPU GEMM 4K: {gemm4k} GFLOPS | FP16 speedup: {fp16x}x")
         print(f"  Max model (inference): {max_inf} | Max model (LoRA): {max_lora}")
+
+        # Best GRPO config if --rl was used
+        rl_data = res.get("rl", {}).get("configs", {})
+        if rl_data:
+            best_model = None
+            best_cfg = None
+            for name, params_b, layers, d, nh in reversed(MODEL_CONFIGS):
+                if name in rl_data and rl_data[name].get("configs"):
+                    best_model = name
+                    cfgs = rl_data[name]["configs"]
+                    best_cfg = max(cfgs, key=lambda x: x["G"] * x["B"] * x["T"])
+                    break
+            if best_model and best_cfg:
+                print(f"  Best GRPO: {best_model} G={best_cfg['G']} B={best_cfg['B']} "
+                      f"T={best_cfg['T']} (peak {best_cfg['peak_gb']:.1f}GB)")
+
         print(f"  {c.dim(REPO_URL)}")
         print(border)
 
